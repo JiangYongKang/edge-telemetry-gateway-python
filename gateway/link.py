@@ -63,6 +63,10 @@ class UplinkManager:
         self._link = link
         self._batch_size = batch_size
 
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
+
     def flush_once(self) -> int:
         """Upload one batch in order; returns number of rows acked.
 

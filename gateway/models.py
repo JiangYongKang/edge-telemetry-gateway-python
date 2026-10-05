@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 class RejectReason(enum.Enum):
     """Why a record was rejected (distinguishable, never silent)."""
     MISSING_FIELD = "missing_field"
+    UNKNOWN_METRIC = "unknown_metric"
     INVALID_UNIT = "invalid_unit"
     INVALID_VALUE = "invalid_value"
     INVALID_TIMESTAMP = "invalid_timestamp"
@@ -19,6 +20,36 @@ class DedupReason(enum.Enum):
     """Why a record was deduplicated instead of stored."""
     EXACT_DUPLICATE = "exact_duplicate"
     CONFLICTING_DUPLICATE = "conflicting_duplicate"
+
+
+class ReasonCode(enum.Enum):
+    """Unified, stable, enumerable reason taxonomy for ops statistics.
+
+    One code per distinguishable cause, across rejected / deduplicated /
+    flagged records. Callers switch on the enum directly -- no need to
+    parse human-readable detail strings.
+    """
+    UNKNOWN_METRIC = "unknown_metric"                # 未知指标
+    MISSING_FIELD = "missing_field"                  # 字段缺失
+    INVALID_UNIT = "invalid_unit"                    # 单位非法
+    INVALID_VALUE = "invalid_value"                  # 数值非法
+    INVALID_TIMESTAMP = "invalid_timestamp"          # 时间戳非法
+    OUT_OF_ORDER_TIMESTAMP = "out_of_order_timestamp"  # 时间乱序
+    DUPLICATE = "duplicate"                          # 重复上报
+    BUFFER_FULL = "buffer_full"                      # 缓冲写满
+    UNKNOWN_PROTOCOL = "unknown_protocol"            # 协议无法识别
+
+
+# RejectReason -> ReasonCode (names/values intentionally aligned).
+_REJECT_TO_CODE: dict["RejectReason", ReasonCode] = {
+    RejectReason.MISSING_FIELD: ReasonCode.MISSING_FIELD,
+    RejectReason.UNKNOWN_METRIC: ReasonCode.UNKNOWN_METRIC,
+    RejectReason.INVALID_UNIT: ReasonCode.INVALID_UNIT,
+    RejectReason.INVALID_VALUE: ReasonCode.INVALID_VALUE,
+    RejectReason.INVALID_TIMESTAMP: ReasonCode.INVALID_TIMESTAMP,
+    RejectReason.UNKNOWN_PROTOCOL: ReasonCode.UNKNOWN_PROTOCOL,
+    RejectReason.BUFFER_FULL: ReasonCode.BUFFER_FULL,
+}
 
 
 class FaultType(enum.Enum):
@@ -68,6 +99,16 @@ class IngestOutcome:
     reject_reason: RejectReason | None = None
     dedup_reason: DedupReason | None = None
     detail: str = ""
+    flagged_code: ReasonCode | None = None  # e.g. OUT_OF_ORDER_TIMESTAMP on accepted records
+
+    @property
+    def reason_code(self) -> ReasonCode | None:
+        """Unified ReasonCode for stats; None for a clean accepted record."""
+        if self.reject_reason is not None:
+            return _REJECT_TO_CODE[self.reject_reason]
+        if self.dedup_reason is not None:
+            return ReasonCode.DUPLICATE
+        return self.flagged_code
 
 
 @dataclass
@@ -77,3 +118,4 @@ class FaultEvent:
     active: bool
     detail: str = ""
     metric: str | None = None
+    at_ms: int = 0  # timestamp of the observation that caused the transition

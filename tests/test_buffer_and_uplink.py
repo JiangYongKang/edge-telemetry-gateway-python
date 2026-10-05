@@ -96,10 +96,9 @@ def test_offline_buffering_and_replay_in_order(tmp_path):
         svc.ingest(json_payload("d1", [reading("temperature", 20 + i, "celsius", NOW + i)]), NOW)
     assert svc.flush() == 0  # link down: nothing leaves
     log.info("input: 5 records while link down; then link up")
-    svc.set_link_state("up")
-    assert svc.flush_all() == 5
+    svc.set_link_state("up")  # recovery auto-triggers replay, no manual flush needed
     sent_ts = [json.loads(p)["timestamp_ms"] for _, p in svc.link.sent]
-    log.info("decision: replayed in collection order %s, pending=%d", sent_ts,
+    log.info("decision: auto-replayed in collection order %s, pending=%d", sent_ts,
              svc.buffer.pending_count())
     assert sent_ts == [NOW + i for i in range(5)]
     assert svc.buffer.pending_count() == 0
@@ -134,14 +133,36 @@ def test_restart_resumes_pending_upload(tmp_path):
     svc.close()  # simulate process crash/restart with link still down
     log.info("input: 3 records buffered, process restarted before any upload")
 
-    svc2 = GatewayService(db)  # same db file: pending data survives
+    # Restart with the link still down: nothing is sent, nothing is lost.
+    link = SimulatedUplink()
+    link.set_state("down")
+    svc2 = GatewayService(db, link=link)
     assert svc2.buffer.pending_count() == 3
+    assert svc2.link.sent == []
+    # Link recovers: replay starts automatically, in collection order.
     svc2.set_link_state("up")
-    assert svc2.flush_all() == 3
     sent_ts = [json.loads(p)["timestamp_ms"] for _, p in svc2.link.sent]
-    log.info("decision: after restart replayed %s, pending=%d", sent_ts,
+    log.info("decision: after restart auto-replayed %s, pending=%d", sent_ts,
              svc2.buffer.pending_count())
     assert sent_ts == [NOW, NOW + 1, NOW + 2]
+    assert svc2.buffer.pending_count() == 0
+    svc2.close()
+
+
+def test_restart_with_link_up_replays_immediately(tmp_path):
+    db = str(tmp_path / "gw.db")
+    svc = GatewayService(db)
+    svc.set_link_state("down")
+    for i in range(3):
+        svc.ingest(json_payload("d1", [reading("temperature", 20 + i, "celsius", NOW + i)]), NOW)
+    svc.close()
+    log.info("input: 3 records buffered, killed; restart with link already up")
+
+    svc2 = GatewayService(db)  # default link state is "up": startup auto-resume
+    sent_ts = [json.loads(p)["timestamp_ms"] for _, p in svc2.link.sent]
+    log.info("decision: startup auto-resume replayed %s without any manual trigger", sent_ts)
+    assert sent_ts == [NOW, NOW + 1, NOW + 2]
+    assert svc2.buffer.pending_count() == 0
     svc2.close()
 
 

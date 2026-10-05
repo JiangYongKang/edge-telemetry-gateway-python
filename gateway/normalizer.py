@@ -68,14 +68,23 @@ def _build_record(
     """Validate one raw reading and convert to the canonical model."""
     if not isinstance(device_id, str) or not device_id.strip():
         return _reject(RejectReason.MISSING_FIELD, f"device_id missing/invalid: {device_id!r}")
-    if not isinstance(metric, str) or metric not in ALLOWED_UNITS:
-        return _reject(RejectReason.MISSING_FIELD, f"metric missing/unknown: {metric!r}")
+    if not isinstance(metric, str) or not metric:
+        return _reject(RejectReason.MISSING_FIELD, f"metric missing/invalid: {metric!r}")
+    if metric not in ALLOWED_UNITS:
+        return _reject(
+            RejectReason.UNKNOWN_METRIC,
+            f"unknown metric {metric!r}; known: {sorted(ALLOWED_UNITS)}",
+        )
     if not isinstance(unit, str) or not unit:
         return _reject(RejectReason.MISSING_FIELD, f"unit missing: {unit!r}")
-    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
-        return _reject(RejectReason.MISSING_FIELD, f"value missing/invalid: {value!r}")
-    if ts is None or isinstance(ts, bool) or not isinstance(ts, (int, float)):
-        return _reject(RejectReason.MISSING_FIELD, f"timestamp missing/invalid: {ts!r}")
+    if value is None:
+        return _reject(RejectReason.MISSING_FIELD, "value missing")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return _reject(RejectReason.INVALID_VALUE, f"value not numeric: {value!r}")
+    if ts is None:
+        return _reject(RejectReason.MISSING_FIELD, "timestamp missing")
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        return _reject(RejectReason.INVALID_TIMESTAMP, f"timestamp not numeric: {ts!r}")
 
     unit_l = unit.lower()
     if unit_l not in ALLOWED_UNITS[metric]:

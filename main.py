@@ -42,18 +42,25 @@ def ingest(payload: dict):
 
 @app.post("/link/{state}")
 def set_link_state(state: str):
-    service.set_link_state(state)
+    service.set_link_state(state, _now_ms())
     return {"link": state}
 
 
 @app.post("/flush")
 def flush():
-    return {"acked": service.flush_all(), "pending": service.buffer.pending_count()}
+    return {"acked": service.flush_all(at_ms=_now_ms()), "pending": service.buffer.pending_count()}
 
 
 @app.get("/buffer")
 def buffer_status():
     return {"pending": service.buffer.pending_count()}
+
+
+@app.get("/status")
+def ops_status():
+    """Ops view: link state, backlog ledger, replay progress, per-device
+    faults with full episode history, and per-reason reject/dedup counts."""
+    return service.status()
 
 
 @app.post("/health/tick")
