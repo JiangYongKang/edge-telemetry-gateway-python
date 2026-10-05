@@ -17,6 +17,7 @@ import threading
 from dataclasses import asdict
 
 from gateway.buffer import PersistentBuffer
+from gateway.stats import StatsStore
 
 VALID_STATES = ("up", "down", "flaky")
 
@@ -58,10 +59,17 @@ class SimulatedUplink:
 class UplinkManager:
     """Drains the buffer in collection order when the link is available."""
 
-    def __init__(self, buffer: PersistentBuffer, link: SimulatedUplink, batch_size: int = 100) -> None:
+    def __init__(
+        self,
+        buffer: PersistentBuffer,
+        link: SimulatedUplink,
+        batch_size: int = 100,
+        stats: "StatsStore | None" = None,
+    ) -> None:
         self._buffer = buffer
         self._link = link
         self._batch_size = batch_size
+        self._stats = stats
 
     def flush_once(self) -> int:
         """Upload one batch in order; returns number of rows acked.
@@ -78,3 +86,23 @@ class UplinkManager:
             acked.append(row_id)
         self._buffer.ack(acked)
         return len(acked)
+
+    def flush_all(self, max_rounds: int = 10_000, now_ms: int = 0) -> int:
+        """Flush until the buffer is drained or the link stops accepting.
+
+        When a StatsStore is attached, the acked count and the progress of
+        this replay round are persisted, so the uploaded/pending books stay
+        consistent even if the process crashes right afterwards.
+        """
+        total = 0
+        rounds = 0
+        for _ in range(max_rounds):
+            n = self.flush_once()
+            rounds += 1
+            total += n
+            if n == 0:
+                break
+        if self._stats is not None:
+            self._stats.record_uploaded(total)
+            self._stats.record_flush(total, rounds, now_ms)
+        return total

@@ -56,6 +56,18 @@ def buffer_status():
     return {"pending": service.buffer.pending_count()}
 
 
+@app.get("/status")
+def ops_status():
+    """Ops view: backlog, upload books, link state, active faults, reason summary."""
+    return service.status()
+
+
+@app.get("/faults")
+def fault_history(device_id: str | None = None):
+    """Fault episodes: device, fault, metric, start, recovery, duration."""
+    return {"episodes": service.fault_history(device_id)}
+
+
 @app.post("/health/tick")
 def health_tick(device_ids: list[str]):
     events = service.health_tick(device_ids, _now_ms())

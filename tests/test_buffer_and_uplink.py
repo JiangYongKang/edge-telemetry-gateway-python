@@ -96,10 +96,9 @@ def test_offline_buffering_and_replay_in_order(tmp_path):
         svc.ingest(json_payload("d1", [reading("temperature", 20 + i, "celsius", NOW + i)]), NOW)
     assert svc.flush() == 0  # link down: nothing leaves
     log.info("input: 5 records while link down; then link up")
-    svc.set_link_state("up")
-    assert svc.flush_all() == 5
+    svc.set_link_state("up")  # recovery triggers replay automatically
     sent_ts = [json.loads(p)["timestamp_ms"] for _, p in svc.link.sent]
-    log.info("decision: replayed in collection order %s, pending=%d", sent_ts,
+    log.info("decision: auto-replayed in collection order %s, pending=%d", sent_ts,
              svc.buffer.pending_count())
     assert sent_ts == [NOW + i for i in range(5)]
     assert svc.buffer.pending_count() == 0
@@ -135,13 +134,12 @@ def test_restart_resumes_pending_upload(tmp_path):
     log.info("input: 3 records buffered, process restarted before any upload")
 
     svc2 = GatewayService(db)  # same db file: pending data survives
-    assert svc2.buffer.pending_count() == 3
-    svc2.set_link_state("up")
-    assert svc2.flush_all() == 3
+    # Link is usable at startup -> replay resumes automatically, no manual flush.
     sent_ts = [json.loads(p)["timestamp_ms"] for _, p in svc2.link.sent]
-    log.info("decision: after restart replayed %s, pending=%d", sent_ts,
+    log.info("decision: after restart auto-replayed %s, pending=%d", sent_ts,
              svc2.buffer.pending_count())
     assert sent_ts == [NOW, NOW + 1, NOW + 2]
+    assert svc2.buffer.pending_count() == 0
     svc2.close()
 
 
